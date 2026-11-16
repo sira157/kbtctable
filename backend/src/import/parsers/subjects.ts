@@ -61,13 +61,18 @@ export function parseSubjects(sheets: Sheet[]): ParseResult {
     const key = `${r.gc}|${r.sc}`;
     const prev = pairs.get(key);
     const entry = {
-      pair: { groupCode: r.gc, subjectCode: r.sc, subjectName: r.sn || subjects.get(r.sc)!, periodsPerWeek: r.p },
+      pair: {
+        groupCode: r.gc, subjectCode: r.sc, subjectName: r.sn || subjects.get(r.sc)!, periodsPerWeek: r.p,
+        sourceSheet: sheet.name, sourceRow: r.row, dupRows: [] as number[],
+      },
       row: r,
     };
     if (!prev) { pairs.set(key, entry); continue; }
     const major = subjects.get(r.sc);
     const keepPrev = prev.row.sn === major && r.sn !== major;
     const chosen = keepPrev ? prev : entry;
+    const other = keepPrev ? entry : prev;
+    chosen.pair.dupRows = [...new Set([...prev.pair.dupRows, other.row.row])].filter((n) => n !== chosen.row.row);
     pairs.set(key, chosen);
     warn(sheet.name, r.row,
       `กลุ่ม ${r.gc} ลงวิชา ${r.sc} ซ้ำกับแถว ${prev.row.row} — ใช้แถว ${chosen.row.row} (${chosen.pair.periodsPerWeek} คาบ) กรุณาตรวจ`);

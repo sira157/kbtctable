@@ -38,12 +38,12 @@ export interface DataSummary {
   checkList: string[];
 }
 
-const labLast = (subjectType: string | null, r: RawRoom) =>
+export const labLast = (subjectType: string | null, r: RawRoom) =>
   subjectType !== "ปฏิบัติการ" && r.roomType === "ปฏิบัติการ" ? 1 : 0;
 
-const norm = (s: string | undefined | null) => (s ?? "").replace(/\s+/g, " ").trim();
+export const norm = (s: string | undefined | null) => (s ?? "").replace(/\s+/g, " ").trim();
 /** names match when equal, or when either side has no name recorded (manual entry / old import) */
-const sameName = (a: string, b: string) => !a || !b || a === b;
+export const sameName = (a: string, b: string) => !a || !b || a === b;
 
 /**
  * Builds solver input from DB rows using ONLY usable data:
@@ -62,9 +62,10 @@ export function buildInput(raw: RawData, options: SolverInput["options"] = {}) {
     .map((gs) => ({ ...gs, name: norm(gs.subjectName) || norm(subjName.get(gs.subjectCode)) || gs.subjectCode }));
   const registered = new Set(regs.map((r) => r.subjectCode));
 
-  const tsByCode = new Map<string, (RawData["teacherSubjects"][number] & { n: string })[]>();
+  type TS = RawData["teacherSubjects"][number];
+  const tsByCode = new Map<string, { ts: TS; n: string }[]>();
   for (const ts of raw.teacherSubjects) {
-    (tsByCode.get(ts.subjectCode) ?? tsByCode.set(ts.subjectCode, []).get(ts.subjectCode)!).push({ ...ts, n: norm(ts.subjectName) });
+    (tsByCode.get(ts.subjectCode) ?? tsByCode.set(ts.subjectCode, []).get(ts.subjectCode)!).push({ ts, n: norm(ts.subjectName) });
   }
   const usedTS = new Set<RawData["teacherSubjects"][number]>();
 
@@ -85,7 +86,7 @@ export function buildInput(raw: RawData, options: SolverInput["options"] = {}) {
     ds.hours += gs.periodsPerWeek;
 
     // teachers for exactly this group's subject (code + registered name)
-    const eligible = (tsByCode.get(gs.subjectCode) ?? []).filter((ts) => sameName(ts.n, gs.name));
+    const eligible = (tsByCode.get(gs.subjectCode) ?? []).filter((x) => sameName(x.n, gs.name)).map((x) => x.ts);
     eligible.forEach((ts) => usedTS.add(ts));
     const mainIds = [...new Set(eligible.filter((t) => t.role === "ผู้สอนหลัก").map((t) => t.teacherId))];
     const coIds = [...new Set(eligible.filter((t) => t.role !== "ผู้สอนหลัก").map((t) => t.teacherId))].filter((id) => !mainIds.includes(id));
@@ -184,4 +185,12 @@ export function buildInput(raw: RawData, options: SolverInput["options"] = {}) {
     options,
   };
   return { input, summary, notes: checkList };
+}
+
+/** rooms in the building that fit the subject's room type and the group's size (labs last for non-lab subjects) */
+export function suitableRooms(inBuilding: RawRoom[], roomType: string | null, students: number) {
+  return inBuilding
+    .filter((r) => !roomType || !r.roomType || r.roomType === roomType)
+    .filter((r) => r.capacity == null || r.capacity >= students)
+    .sort((a, b) => labLast(roomType, a) - labLast(roomType, b) || (a.capacity ?? 9999) - (b.capacity ?? 9999));
 }

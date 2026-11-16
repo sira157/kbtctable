@@ -11,8 +11,12 @@ async function resolveRun(id: string) {
 }
 
 export const scheduleRoutes = new Elysia({ prefix: "/schedule" })
-  .post("/generate", ({ body }) => generate({ activityMode: body?.activityMode ?? "period10" }), {
-    body: t.Optional(t.Object({ activityMode: t.Optional(t.Union([t.Literal("period10"), t.Literal("groupLast")])) })),
+  .post("/generate", ({ body }) => generate({ activityMode: body?.activityMode ?? "period10" }, body?.screeningToken), {
+    body: t.Optional(t.Object({
+      activityMode: t.Optional(t.Union([t.Literal("period10"), t.Literal("groupLast")])),
+      /** token from GET /screening that the user confirmed (Scheduling Gate) */
+      screeningToken: t.Optional(t.String()),
+    })),
   })
   .get("/runs", () => listRuns())
   .get("/runs/:id", async ({ params, set }) => {

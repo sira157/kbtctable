@@ -28,7 +28,11 @@ export interface SubjectsData {
   type: "subjects";
   subjects: { code: string; name: string }[];
   /** subjectName = name as written in this group's row (one code may have different names per group) */
-  groupSubjects: { groupCode: string; subjectCode: string; subjectName: string; periodsPerWeek: number }[];
+  groupSubjects: {
+    groupCode: string; subjectCode: string; subjectName: string; periodsPerWeek: number;
+    /** where the chosen row is in the file, and other rows registering the same group × subject */
+    sourceSheet: string; sourceRow: number; dupRows: number[];
+  }[];
   /** Group codes referenced but not in DB — created as placeholders on commit. */
   newGroups?: { code: string; major: string | null }[];
   /** existing placeholder groups whose major can now be guessed */

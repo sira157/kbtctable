@@ -88,3 +88,32 @@
 # kbtctable
 autotable
 >>>>>>> 1caa0fcb481211c01c9c5ba50bf70f524f9e97ba
+
+## คัดกรองข้อมูลก่อนจัดตาราง (Pre-Scheduling Filter) — หน้า /screening
+ขั้นตอนบังคับ: นำเข้า → คัดกรองอัตโนมัติ → ผู้ใช้ตรวจ + ยืนยัน → จัดตาราง
+
+| สถานะ | ความหมาย | เข้าจัดตาราง |
+|---|---|---|
+| READY_TO_SCHEDULE | กลุ่มอยู่ในทะเบียน, มีผู้สอนหลักตรงรหัส+ชื่อวิชา, คาบรวม ≤ 40, มีห้องที่เหมาะ (ถ้าอาคารมีห้อง) | ✓ |
+| NOT_REGISTERED | รหัสกลุ่มไม่อยู่ในทะเบียน (ไฟล์กลุ่มเรียน / ติ๊ก "อยู่ในทะเบียน") | ✗ |
+| INVALID_DATA | แถวอ่านไม่ได้ / ไม่มีผู้สอนหลัก / คาบเกิน 40 / ไม่มีห้องที่เหมาะ | ✗ |
+| PENDING_REVIEW | รหัสกลุ่มกรณีพิเศษ / ลงวิชาซ้ำ — กด "ยืนยันให้จัดตาราง" ได้ | ✗ (จนกว่าจะยืนยัน) |
+
+- คำนวณจากฐานข้อมูลสดทุกครั้ง (ตัวเลขตรงกับ DB เสมอ) — `GET /api/screening`, ยืนยันรายการรอตรวจ `POST /api/screening/review`
+- Gate: `POST /api/schedule/generate` ต้องส่ง `screeningToken` จากผลคัดกรองที่ผู้ใช้ยืนยัน — ไม่มี/ไม่ตรง (ข้อมูลเปลี่ยน) = ปฏิเสธ; ส่งเข้า solver เฉพาะ READY
+- ข้อมูลต้นฉบับทุกแถวของทุกไฟล์เก็บใน `source_rows` (ไม่ลบ; นำเข้าใหม่ = แถวเก่า active=0)
+- ทดสอบ: `bun test` (screening.test.ts) + acceptance H1–H8 ผ่านบน DB ทดสอบ
+
+## ออนไลน์ด้วย Render (ฟรี) + Aiven MySQL (ฟรี)
+```
+ผู้ใช้ → timetable-web (Next.js + รหัสผ่าน) → timetable-api (Bun, ต้องมี BACKEND_TOKEN) → Aiven MySQL
+```
+1. **Aiven** (aiven.io) → Create service → MySQL → Free plan → รอสถานะ Running → คัดลอก **Service URI** (และดาวน์โหลด **CA certificate** ถ้าต้องการตรวจใบรับรอง)
+2. **Render** (render.com) → New → **Blueprint** → เลือก repo นี้ → Render อ่าน `render.yaml` แล้วสร้าง 2 service
+3. ใส่ค่าที่ Render ถาม:
+   - `timetable-api` → `DATABASE_URL` = Service URI จาก Aiven, `DB_SSL_CA` = เนื้อหาไฟล์ ca.pem (ไม่บังคับ)
+   - `timetable-web` → `APP_PASSWORD` = รหัสผ่านเข้าเว็บ, `BACKEND_URL` = URL ของ timetable-api (เช่น `https://timetable-api.onrender.com`)
+   - `BACKEND_TOKEN` สร้างให้อัตโนมัติและส่งให้ทั้งสอง service
+4. รอ deploy เสร็จ → เปิด URL ของ `timetable-web` → ล็อกอิน → นำเข้าไฟล์ Excel 4 ไฟล์ (ฐานข้อมูลใหม่ว่าง; `bun src/db/setup.ts` สร้างตารางให้อัตโนมัติทุกครั้งที่เริ่ม)
+
+หมายเหตุแบบฟรี: service หลับหลังไม่มีคนใช้ 15 นาที — เปิดครั้งแรกรอ ~1 นาที · ไฟล์ `.xlsx` และ `.env` ไม่ถูกเก็บใน git

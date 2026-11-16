@@ -1,5 +1,5 @@
 import {
-  mysqlTable, varchar, int, mysqlEnum, json, timestamp, uniqueIndex, index, primaryKey,
+  mysqlTable, varchar, int, mysqlEnum, json, timestamp, uniqueIndex, index, primaryKey, text,
 } from "drizzle-orm/mysql-core";
 
 export const classGroups = mysqlTable("class_groups", {
@@ -8,6 +8,10 @@ export const classGroups = mysqlTable("class_groups", {
   major: varchar("major", { length: 255 }),
   /** null → ใช้ 30 คน */
   students: int("students"),
+  /** 1 = อยู่ในทะเบียนกลุ่มเรียน (ไฟล์กลุ่มเรียน / เพิ่มเอง), 0 = ถูกอ้างถึงจากไฟล์อื่นเท่านั้น */
+  registered: int("registered").notNull().default(0),
+  /** การยืนยันของผู้ใช้สำหรับรายการรอตรวจสอบ: "" | "approved" */
+  review: varchar("review", { length: 16 }).notNull().default(""),
 });
 
 export const teachers = mysqlTable("teachers", {
@@ -37,6 +41,12 @@ export const groupSubjects = mysqlTable(
     periodsPerWeek: int("periods_per_week").notNull(),
     /** ชื่อวิชาตามที่กลุ่มนี้ลงทะเบียน (รหัสเดียวกันอาจชื่อต่างกันในแต่ละกลุ่ม) */
     subjectName: varchar("subject_name", { length: 255 }).notNull().default(""),
+    sourceFile: varchar("source_file", { length: 255 }).notNull().default(""),
+    sourceSheet: varchar("source_sheet", { length: 255 }).notNull().default(""),
+    sourceRow: int("source_row"),
+    /** other source rows with the same group × subject */
+    dupRows: varchar("dup_rows", { length: 255 }).notNull().default(""),
+    review: varchar("review", { length: 16 }).notNull().default(""),
   },
   (t) => [uniqueIndex("uq_group_subject").on(t.groupCode, t.subjectCode)],
 );
@@ -130,3 +140,17 @@ export const teacherUnavailability = mysqlTable(
   },
   (t) => [primaryKey({ columns: [t.teacherId, t.day, t.period] })],
 );
+
+/** every row of every imported file — never deleted (older imports get active = 0) */
+export const sourceRows = mysqlTable("source_rows", {
+  id: int("id").autoincrement().primaryKey(),
+  importId: int("import_id"),
+  fileType: varchar("file_type", { length: 32 }).notNull(),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  sheet: varchar("sheet", { length: 255 }).notNull(),
+  rowNo: int("row_no").notNull(),
+  data: json("data"),
+  parseError: text("parse_error"),
+  active: int("active").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

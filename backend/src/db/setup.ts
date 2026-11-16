@@ -2,15 +2,13 @@
 // Plain SQL instead of `drizzle-kit push`, which crashes on MariaDB (XAMPP) JSON check constraints.
 // Keep in sync with ./schema.ts.
 import mysql from "mysql2/promise";
+import { dbConfig } from "./config";
 
-const name = process.env.DB_NAME ?? "myapp";
-if (!/^\w+$/.test(name)) throw new Error(`Invalid DB_NAME: ${name}`);
+const { database: name, ...server } = dbConfig();
+if (!/^\w+$/.test(name)) throw new Error(`Invalid database name: ${name}`);
 
 const conn = await mysql.createConnection({
-  host: process.env.DB_HOST ?? "127.0.0.1",
-  port: Number(process.env.DB_PORT ?? 3306),
-  user: process.env.DB_USER ?? "root",
-  password: process.env.DB_PASSWORD ?? "",
+  ...server,
   charset: "utf8mb4",
   multipleStatements: true,
 });
@@ -145,6 +143,37 @@ await addColumn("teacher_subjects", "subject_name", "VARCHAR(255) NOT NULL DEFAU
 await addIndex("teacher_subjects", "uq_teacher_subject_name",
   "UNIQUE KEY uq_teacher_subject_name (teacher_id, subject_code, subject_name)");
 await dropIndex("teacher_subjects", "uq_teacher_subject");
+
+// ---- pre-scheduling filter ----
+// registry flag: 1 = in the official group list (groups file / added by user), 0 = only referenced by other files
+if (!(await hasColumn("class_groups", "registered"))) {
+  await addColumn("class_groups", "registered", "TINYINT NOT NULL DEFAULT 0");
+  // existing data: groups that got a real name came from the groups file
+  await conn.query("UPDATE class_groups SET registered = 1 WHERE name <> code");
+}
+await addColumn("group_subjects", "source_file", "VARCHAR(255) NOT NULL DEFAULT ''");
+await addColumn("group_subjects", "source_sheet", "VARCHAR(255) NOT NULL DEFAULT ''");
+await addColumn("group_subjects", "source_row", "INT NULL");
+/** other source rows that registered the same group × subject (duplicates) */
+await addColumn("group_subjects", "dup_rows", "VARCHAR(255) NOT NULL DEFAULT ''");
+/** user decision on a PENDING_REVIEW item: '' | 'approved' */
+await addColumn("group_subjects", "review", "VARCHAR(16) NOT NULL DEFAULT ''");
+await addColumn("class_groups", "review", "VARCHAR(16) NOT NULL DEFAULT ''");
+// every row of every imported file, kept forever (never deleted)
+await conn.query(`
+CREATE TABLE IF NOT EXISTS source_rows (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  import_id INT NULL,
+  file_type VARCHAR(32) NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  sheet VARCHAR(255) NOT NULL,
+  row_no INT NOT NULL,
+  data JSON NULL,
+  parse_error TEXT NULL,
+  active TINYINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY ix_src_active (file_type, active)
+) ${T}`);
 
 await addColumn("class_groups", "students", "INT NULL");
 await addColumn("subjects", "room_type", "VARCHAR(20) NULL");

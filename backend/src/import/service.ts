@@ -2,12 +2,14 @@ import { desc, eq, sql } from "drizzle-orm";
 import type { AnyMySqlColumn } from "drizzle-orm/mysql-core";
 import { asJson, db, type DB } from "../db/client";
 import {
-  buildings, classGroups, groupSubjects, importLogs, rooms, subjects, teachers, teacherSubjects,
+  buildings, classGroups, groupSubjects, importLogs, rooms, sourceRows, subjects, teachers, teacherSubjects,
 } from "../db/schema";
+import { screeningSummary } from "../screening/service";
+import { isBlankRow, text } from "./normalize";
 import { detectFileType } from "./detect";
 import { guessMajor } from "./groupCode";
 import { parsers } from "./parsers";
-import { FILE_TYPE_LABELS, type FileType, type ImportData, type ParseResult, type RowIssue } from "./types";
+import { FILE_TYPE_LABELS, type FileType, type ImportData, type ParseResult, type RowIssue, type Sheet } from "./types";
 import { readWorkbook } from "./workbook";
 
 type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
@@ -34,7 +36,7 @@ export interface PreviewResult extends Omit<ParseResult, "data"> {
   warningCount: number;
 }
 
-async function parseFile(file: File): Promise<{ type: FileType; parsed: ParseResult }> {
+async function parseFile(file: File): Promise<{ type: FileType; parsed: ParseResult; sheets: Sheet[] }> {
   let sheets;
   try {
     sheets = readWorkbook(new Uint8Array(await file.arrayBuffer()));
@@ -47,7 +49,7 @@ async function parseFile(file: File): Promise<{ type: FileType; parsed: ParseRes
       "ไม่รู้จักรูปแบบไฟล์ (หัวตารางต้องตรงกับไฟล์ กลุ่มเรียน / รายวิชา / อาจารย์ / อาคารเรียน)",
     );
   }
-  return { type, parsed: parsers[type](sheets) };
+  return { type, parsed: parsers[type](sheets), sheets };
 }
 
 /** Checks that need the database (foreign keys, conflicting names). Mutates `data` to drop bad rows. */
@@ -75,7 +77,7 @@ async function checkAgainstDb(exec: Exec, data: ImportData): Promise<RowIssue[]>
         sheet: "ฐานข้อมูล",
         row: 0,
         level: "warning",
-        message: `ไม่พบกลุ่มเรียน ${g.code} ในฐานข้อมูล (${missing.get(g.code)} แถว) — จะสร้างให้อัตโนมัติ (ชื่อ = รหัส, สาขา ≈ ${g.major ?? "ไม่ทราบ"})`,
+        message: `กลุ่มเรียน ${g.code} ไม่อยู่ในทะเบียนกลุ่มเรียน (${missing.get(g.code)} แถว) — เก็บข้อมูลไว้ สถานะ "ไม่มีการลงทะเบียน" ไม่นำไปจัดตาราง`,
       });
     }
   }
@@ -157,14 +159,18 @@ async function upsertSubjects(tx: Tx, list: { code: string; name: string }[], up
   return count;
 }
 
-async function commitData(tx: Tx, data: ImportData): Promise<Record<string, TableCount>> {
+async function commitData(tx: Tx, data: ImportData, fileName: string): Promise<Record<string, TableCount>> {
   switch (data.type) {
     case "class_groups": {
       const existing = new Set((await tx.select({ c: classGroups.code }).from(classGroups)).map((r) => r.c));
       const count = tally(data.groups, (g) => g.code, existing);
+      // the groups file IS the registry → every group in it is registered
       await inChunks(data.groups, (c) =>
-        tx.insert(classGroups).values(c).onDuplicateKeyUpdate({
-          set: { name: vals(classGroups.name), major: vals(classGroups.major), students: keepIfNull(classGroups.students) },
+        tx.insert(classGroups).values(c.map((g) => ({ ...g, registered: 1 }))).onDuplicateKeyUpdate({
+          set: {
+            name: vals(classGroups.name), major: vals(classGroups.major),
+            students: keepIfNull(classGroups.students), registered: vals(classGroups.registered),
+          },
         }),
       );
       return { class_groups: count };
@@ -187,8 +193,15 @@ async function commitData(tx: Tx, data: ImportData): Promise<Record<string, Tabl
       );
       const gsCount = tally(data.groupSubjects, (g) => `${g.groupCode}|${g.subjectCode}`, existing);
       await inChunks(data.groupSubjects, (c) =>
-        tx.insert(groupSubjects).values(c).onDuplicateKeyUpdate({
-          set: { periodsPerWeek: vals(groupSubjects.periodsPerWeek), subjectName: vals(groupSubjects.subjectName) },
+        tx.insert(groupSubjects).values(c.map((g) => ({
+          groupCode: g.groupCode, subjectCode: g.subjectCode, subjectName: g.subjectName, periodsPerWeek: g.periodsPerWeek,
+          sourceFile: fileName, sourceSheet: g.sourceSheet, sourceRow: g.sourceRow, dupRows: g.dupRows.join(","),
+        }))).onDuplicateKeyUpdate({
+          set: {
+            periodsPerWeek: vals(groupSubjects.periodsPerWeek), subjectName: vals(groupSubjects.subjectName),
+            sourceFile: vals(groupSubjects.sourceFile), sourceSheet: vals(groupSubjects.sourceSheet),
+            sourceRow: vals(groupSubjects.sourceRow), dupRows: vals(groupSubjects.dupRows),
+          },
         }),
       );
       return {
@@ -271,14 +284,40 @@ async function commitData(tx: Tx, data: ImportData): Promise<Record<string, Tabl
   }
 }
 
+/** Keep every original row (never deleted). Rows of older imports of the same file type become inactive. */
+async function saveSourceRows(tx: Tx, importId: number | null, type: FileType, fileName: string, sheets: Sheet[], issues: RowIssue[]) {
+  const errorAt = new Map<string, string[]>();
+  for (const i of issues) {
+    if (i.level !== "error" || i.row < 2) continue;
+    const k = `${i.sheet}|${i.row}`;
+    (errorAt.get(k) ?? errorAt.set(k, []).get(k)!).push(i.message);
+  }
+  await tx.update(sourceRows).set({ active: 0 }).where(eq(sourceRows.fileType, type));
+  const rows: (typeof sourceRows.$inferInsert)[] = [];
+  for (const s of sheets) {
+    const header = (s.rows[0] ?? []).map((h, i) => text(h) || `คอลัมน์ ${i + 1}`);
+    s.rows.slice(1).forEach((r, i) => {
+      if (isBlankRow(r)) return;
+      const rowNo = i + 2;
+      const data = Object.fromEntries(header.map((h, c) => [h, r[c] ?? null]));
+      rows.push({
+        importId, fileType: type, fileName, sheet: s.name, rowNo, data,
+        parseError: errorAt.get(`${s.name}|${rowNo}`)?.join(" · ") ?? null, active: 1,
+      });
+    });
+  }
+  await inChunks(rows, (c) => tx.insert(sourceRows).values(c));
+  return rows.length;
+}
+
 export async function commit(file: File) {
-  const { type, parsed } = await parseFile(file);
+  const { type, parsed, sheets } = await parseFile(file);
   const issues = [...parsed.issues];
   const rowErrors = issues.filter((i) => i.level === "error").length;
 
   const details = await db.transaction(async (tx) => {
     issues.push(...(await checkAgainstDb(tx, parsed.data)));
-    return commitData(tx, parsed.data);
+    return commitData(tx, parsed.data, file.name);
   });
 
   const dbSkipped = issues
@@ -300,8 +339,15 @@ export async function commit(file: File) {
     details,
     errors: issues,
   }).$returningId();
+  const sourceCount = await db.transaction((tx) => saveSourceRows(tx, res?.id ?? null, type, file.name, sheets, issues));
 
-  return { id: res?.id, fileName: file.name, type, typeLabel: FILE_TYPE_LABELS[type], ...totals, skipped, details, issues };
+  // A. automatic screening right after the import is confirmed
+  const screening = await screeningSummary();
+
+  return {
+    id: res?.id, fileName: file.name, type, typeLabel: FILE_TYPE_LABELS[type], ...totals, skipped, details, issues,
+    sourceRows: sourceCount, screening,
+  };
 }
 
 const parseLog = (r: typeof importLogs.$inferSelect) => ({

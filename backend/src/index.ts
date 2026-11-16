@@ -4,18 +4,31 @@ import { ImportError } from "./import/service";
 import { dataRoutes } from "./routes/data";
 import { importRoutes } from "./routes/import";
 import { manageRoutes, ValidationError } from "./routes/manage";
+import { screeningRoutes } from "./routes/screening";
+import { ScreeningError } from "./screening/service";
 import { scheduleRoutes } from "./routes/schedule";
 import { ScheduleError } from "./schedule/service";
 
 const port = Number(process.env.PORT ?? 3001);
 
+// On a public host the backend only answers the frontend proxy, which sends this shared secret.
+const BACKEND_TOKEN = process.env.BACKEND_TOKEN;
+
 const app = new Elysia()
+  .onRequest(({ request, set }) => {
+    if (!BACKEND_TOKEN) return;
+    const path = new URL(request.url).pathname;
+    if (path.startsWith("/api") && request.headers.get("x-backend-token") !== BACKEND_TOKEN) {
+      set.status = 401;
+      return { message: "unauthorized" };
+    }
+  })
   .use(cors({
     origin: (process.env.CORS_ORIGIN ?? "http://localhost:3000,http://127.0.0.1:3000")
       .split(",").map((s) => s.trim()),
   }))
   .onError(({ error, code, set }) => {
-    if (error instanceof ImportError || error instanceof ScheduleError) {
+    if (error instanceof ImportError || error instanceof ScheduleError || error instanceof ScreeningError) {
       set.status = 400;
       return { message: error.message };
     }
@@ -44,7 +57,7 @@ const app = new Elysia()
     return { message: `เกิดข้อผิดพลาดที่เซิร์ฟเวอร์: ${msg}` };
   })
   .get("/", () => ({ ok: true, name: "myapp-backend" }))
-  .group("/api", (api) => api.use(importRoutes).use(dataRoutes).use(scheduleRoutes).use(manageRoutes))
-  .listen(port);
+  .group("/api", (api) => api.use(importRoutes).use(dataRoutes).use(scheduleRoutes).use(manageRoutes).use(screeningRoutes))
+  .listen({ port, hostname: process.env.HOST ?? "127.0.0.1" });
 
 console.log(`🦊 Elysia API running at http://localhost:${app.server?.port}`);

@@ -12,7 +12,8 @@ const LIMIT = 50;
 const COLUMNS: Record<string, { key: string; label: string }[]> = {
   class_groups: [
     { key: "code", label: "รหัสกลุ่ม" }, { key: "name", label: "ชื่อกลุ่มเรียน" }, { key: "major", label: "สาขาวิชา" },
-    { key: "students", label: "นักศึกษา" }, { key: "subject_count", label: "จำนวนวิชา" }, { key: "hours", label: "คาบ/สัปดาห์" },
+    { key: "students", label: "นักศึกษา" }, { key: "registered_label", label: "ทะเบียน" },
+    { key: "subject_count", label: "จำนวนวิชา" }, { key: "hours", label: "คาบ/สัปดาห์" },
   ],
   subjects: [
     { key: "code", label: "รหัสวิชา" }, { key: "name", label: "ชื่อวิชา" }, { key: "room_type", label: "ประเภทห้อง" },
@@ -54,7 +55,11 @@ export default function ManagePage() {
 
   useEffect(() => { api<Meta>("/manage/meta").then(setMeta).catch((e) => setErr(e.message)); }, []);
   useEffect(() => { const id = setTimeout(() => { setQ(search); setPage(1); }, 300); return () => clearTimeout(id); }, [search]);
-  useEffect(() => { setEditing(null); setSearch(""); setQ(""); setPage(1); }, [entity]);
+  useEffect(() => {
+    // ?q= pre-fills the search (used by "แก้ไขข้อมูลในระบบ" on the screening page)
+    const initial = new URLSearchParams(window.location.search).get("q") ?? "";
+    setEditing(null); setSearch(initial); setQ(initial); setPage(1);
+  }, [entity]);
 
   useEffect(() => {
     const p = new URLSearchParams({ page: String(page), limit: String(LIMIT), search: q });
@@ -69,7 +74,9 @@ export default function ManagePage() {
   function startEdit(row: Row | null) {
     if (!def) return;
     const values: Record<string, string> = {};
-    for (const f of def.fields) values[f.key] = row?.[f.key] == null ? "" : String(row[f.key]);
+    for (const f of def.fields) {
+      values[f.key] = row?.[f.key] == null ? (f.kind === "bool" && !row ? "1" : "") : String(row[f.key]);
+    }
     setEditing({ id: row ? String(row[def.pk]) : null, values });
     setFlash("");
   }
@@ -243,6 +250,18 @@ function FieldInput({ f, value, error, options, refAutoId, onChange }: {
   const cls = `w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 ${error ? "border-red-400" : "border-slate-300"}`;
   const listId = `dl-${f.key}`;
   let input: React.ReactNode;
+  if (f.kind === "bool") {
+    return (
+      <label className="flex items-start gap-2 text-sm md:col-span-2">
+        <input type="checkbox" checked={value === "1"} onChange={(e) => onChange(e.target.checked ? "1" : "0")} className="mt-1" />
+        <span>
+          <span className="font-medium text-slate-700">{f.label}</span>
+          {f.help && <span className="block text-xs text-slate-400">{f.help}</span>}
+          {error && <span className="block text-xs text-red-600">{error}</span>}
+        </span>
+      </label>
+    );
+  }
   if (f.kind === "enum") {
     input = (
       <select value={value} onChange={(e) => onChange(e.target.value)} className={cls}>

@@ -6,7 +6,7 @@ import { code as normCode, text as normText } from "../import/normalize";
 
 // ---------- entity definitions (single source for validation, SQL and the frontend form) ----------
 
-type Kind = "code" | "text" | "int" | "enum" | "ref";
+type Kind = "code" | "text" | "int" | "enum" | "ref" | "bool";
 interface Field {
   key: string;
   label: string;
@@ -46,8 +46,9 @@ export const ENTITIES: Record<EntityKey, Entity> = {
       { key: "name", label: "ชื่อกลุ่มเรียน", kind: "text", required: true },
       { key: "major", label: "สาขาวิชา", kind: "text" },
       { key: "students", label: "จำนวนนักศึกษา", kind: "int", min: 1, max: 300, help: "ว่าง = 30 คน" },
+      { key: "registered", label: "อยู่ในทะเบียนกลุ่มเรียน", kind: "bool", help: "ไม่ติ๊ก = รายวิชาของกลุ่มนี้มีสถานะ \"ไม่มีการลงทะเบียน\" และไม่ถูกจัดตาราง" },
     ],
-    list: "SELECT m.code, m.name, m.major, m.students, (SELECT COUNT(*) FROM group_subjects g WHERE g.group_code = m.code) AS subject_count, (SELECT COALESCE(SUM(g.periods_per_week),0) FROM group_subjects g WHERE g.group_code = m.code) AS hours FROM class_groups m",
+    list: "SELECT m.code, m.name, m.major, m.students, m.registered, IF(m.registered = 1, '✓ อยู่ในทะเบียน', '— ไม่อยู่') AS registered_label, (SELECT COUNT(*) FROM group_subjects g WHERE g.group_code = m.code) AS subject_count, (SELECT COALESCE(SUM(g.periods_per_week),0) FROM group_subjects g WHERE g.group_code = m.code) AS hours FROM class_groups m",
     search: ["m.code", "m.name", "m.major"], order: "m.code",
     cascade: "รายวิชาของกลุ่มนี้ทั้งหมด", optionLabel: "CONCAT(m.code, ' ', m.name)",
   },
@@ -144,6 +145,7 @@ async function clean(conn: PoolConnection, ent: Entity, body: Record<string, unk
       case "code": v = normCode(raw); break;
       case "text": v = normText(raw); break;
       case "enum": v = normText(raw); break;
+      case "bool": v = [true, 1, "1", "true", "on"].includes(raw as never) ? 1 : 0; break;
       case "int": {
         const s = normText(raw);
         if (s === "") { v = ""; break; }

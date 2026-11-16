@@ -1,4 +1,10 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
+/**
+ * Browser → same-origin "/api" (proxied by Next to the backend, protected by the login middleware).
+ * Server components → the backend directly on this machine.
+ */
+export const API_URL = typeof window === "undefined"
+  ? `${process.env.BACKEND_URL ?? "http://127.0.0.1:3001"}/api`
+  : "/api";
 
 export class ApiError extends Error {
   constructor(message: string, public fieldErrors: Record<string, string> = {}) { super(message); }
@@ -7,9 +13,20 @@ export class ApiError extends Error {
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { cache: "no-store", ...init });
+    // server components call the backend directly → send the backend secret
+    const serverHeaders: Record<string, string> =
+      typeof window === "undefined" && process.env.BACKEND_TOKEN ? { "x-backend-token": process.env.BACKEND_TOKEN } : {};
+    res = await fetch(`${API_URL}${path}`, {
+      cache: "no-store",
+      ...init,
+      headers: { ...serverHeaders, ...(init?.headers as Record<string, string> | undefined) },
+    });
   } catch {
     throw new Error(`เชื่อมต่อ API ไม่ได้ (${API_URL}) — เปิด backend แล้วหรือยัง?`);
+  }
+  if (res.status === 401 && typeof window !== "undefined") {
+    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+    throw new ApiError("กรุณาเข้าสู่ระบบ");
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(body?.message ?? `HTTP ${res.status}`, body?.fieldErrors ?? {});
@@ -35,6 +52,8 @@ export interface CommitResult {
   id: number; fileName: string; type: string; typeLabel: string;
   inserted: number; updated: number; skipped: number;
   details: Record<string, TableCount>; issues: RowIssue[];
+  /** A. automatic screening right after the import */
+  screening?: { summary: { total: number; ready: number; notRegistered: number; invalid: number; pending: number; readyHours: number; notRegisteredHours: number } };
 }
 export interface ImportLog {
   id: number; fileName: string; fileType: string;
@@ -94,7 +113,9 @@ export interface DataSummary {
   used: { registrations: number; groups: number; subjects: number; hours: number; teachers: number; assignments: number };
   skipped: {
     unregisteredSubjects: number; unregisteredExamples: string[]; assignmentsOfUnregistered: number;
-    teachersWithoutRegisteredSubject: number; groupsWithoutRegistration: number; registeredWithoutTeacher: number;
+    assignmentsNameMismatch: number; nameMismatchExamples: string[];
+    teachersWithoutRegisteredSubject: number; groupsWithoutRegistration: number;
+    registrationsWithoutTeacher: number; withoutTeacherExamples: string[];
   };
   departments: { department: string; building: string; ownBuilding: boolean; registrations: number; hours: number }[];
   rooms: { buildingsWithRooms: string[]; noSuitableRoom: number };
@@ -110,7 +131,7 @@ export interface GridEntry {
 }
 
 // ---------- manage (CRUD) ----------
-export type FieldKind = "code" | "text" | "int" | "enum" | "ref";
+export type FieldKind = "code" | "text" | "int" | "enum" | "ref" | "bool";
 export interface FieldDef {
   key: string; label: string; kind: FieldKind; required?: boolean;
   min?: number; max?: number; options?: string[]; ref?: string; help?: string;

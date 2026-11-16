@@ -1,5 +1,16 @@
 node_modules
-.env
-.env.local
 .next
 dist
+*.tsbuildinfo
+next-env.d.ts
+*.log
+
+# secrets
+.env
+.env.local
+.env.*.local
+
+# college data files — never commit (import them through the website instead)
+*.xlsx
+*.xls
+*.csv

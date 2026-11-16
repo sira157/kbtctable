@@ -1,0 +1,38 @@
+# Render Blueprint — New → Blueprint → pick this repo
+services:
+  # Bun + Elysia API (only reachable with BACKEND_TOKEN, which the web service sends)
+  - type: web
+    name: timetable-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL # Aiven "Service URI": mysql://avnadmin:…@….aivencloud.com:12345/defaultdb?ssl-mode=REQUIRED
+        sync: false
+      - key: DB_SSL_CA # optional: Aiven CA certificate (PEM) → verifies the DB server certificate
+        sync: false
+      - key: BACKEND_TOKEN
+        generateValue: true
+
+  # Next.js website (login + proxies /api to the API)
+  - type: web
+    name: timetable-web
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerContext: ./frontend
+    dockerfilePath: ./frontend/Dockerfile
+    healthCheckPath: /login
+    envVars:
+      - key: APP_PASSWORD # password for the website
+        sync: false
+      - key: BACKEND_URL # URL of timetable-api, e.g. https://timetable-api.onrender.com
+        sync: false
+      - key: BACKEND_TOKEN
+        fromService:
+          type: web
+          name: timetable-api
+          envVarKey: BACKEND_TOKEN

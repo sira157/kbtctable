@@ -4,6 +4,7 @@ import {
   buildings, classGroups, groupSubjects, rooms, scheduleEntries, scheduleRuns, subjects, teachers, teacherSubjects,
   teacherUnavailability,
 } from "../db/schema";
+import { runScreening } from "../screening/service";
 import { buildInput } from "./input";
 import { solve } from "./solver";
 import type { SolverInput } from "./types";
@@ -13,7 +14,25 @@ export class ScheduleError extends Error {}
 
 const CHUNK = 1000;
 
-export async function generate(options: SolverInput["options"] = {}) {
+/**
+ * F. Scheduling Gate — the scheduler only runs on a screening result the user has seen and confirmed:
+ *  - screening is re-run here (never skipped, even if generate is called directly)
+ *  - `screeningToken` must equal the fingerprint of the current result, otherwise the data changed / was not confirmed
+ *  - only READY_TO_SCHEDULE items go to the scheduler
+ */
+export async function generate(options: SolverInput["options"] = {}, screeningToken?: string) {
+  const screening = await runScreening();
+  if (!screeningToken) {
+    throw new ScheduleError("ต้องตรวจผลคัดกรองข้อมูลและกดยืนยันก่อนเริ่มจัดตาราง (หน้า \"คัดกรองข้อมูล\")");
+  }
+  if (screeningToken !== screening.token) {
+    throw new ScheduleError("ข้อมูลเปลี่ยนไปหลังจากที่ตรวจผลคัดกรอง — กรุณาตรวจผลคัดกรองใหม่แล้วยืนยันอีกครั้ง");
+  }
+  const readyIds = new Set(
+    screening.items.filter((i) => i.status === "READY_TO_SCHEDULE" && i.id.startsWith("gs-")).map((i) => Number(i.id.slice(3))),
+  );
+  if (!readyIds.size) throw new ScheduleError("ไม่มีรายการที่พร้อมจัดตาราง — แก้ข้อมูลตามผลคัดกรองก่อน");
+
   const [g, s, gs, t, ts, b, r, u] = await Promise.all([
     db.select().from(classGroups),
     db.select().from(subjects),
@@ -24,17 +43,21 @@ export async function generate(options: SolverInput["options"] = {}) {
     db.select().from(rooms),
     db.select().from(teacherUnavailability),
   ]);
-  if (!gs.length) throw new ScheduleError("ยังไม่มีข้อมูลรายวิชาของกลุ่มเรียน — นำเข้าไฟล์หรือเพิ่มในหน้าจัดการข้อมูลก่อน");
 
   const buildingName = new Map(b.map((x) => [x.id, x.name]));
   const unavailable: Record<number, string[]> = {};
   for (const x of u) (unavailable[x.teacherId] ??= []).push(`${x.day}:${x.period}`);
 
   const { input, summary: data, notes } = buildInput({
-    groups: g, subjects: s, groupSubjects: gs, teachers: t, teacherSubjects: ts, buildings: b.map((x) => x.name),
+    groups: g, subjects: s,
+    groupSubjects: gs.filter((x) => readyIds.has(x.id)), // ← gate: READY only
+    teachers: t, teacherSubjects: ts, buildings: b.map((x) => x.name),
     rooms: r.map((x) => ({ id: x.id, building: buildingName.get(x.buildingId)!, roomCode: x.roomCode, capacity: x.capacity, roomType: x.roomType })),
     unavailable,
   }, options);
+  // safety net: nothing that is not READY may reach the solver
+  const leaked = input.demands.filter((d) => !gs.some((x) => readyIds.has(x.id) && x.groupCode === d.groupCode && x.subjectCode === d.subjectCode));
+  if (leaked.length) throw new ScheduleError(`พบรายการที่ไม่ผ่านการคัดกรอง ${leaked.length} รายการ — หยุดการจัดตาราง`);
   const result = solve(input);
   const validation = validate(input, result.entries);
   const coverage = coverageReport(input, result.entries);
@@ -46,6 +69,7 @@ export async function generate(options: SolverInput["options"] = {}) {
     coverage,
     balance: balanceReport(input, result.entries),
     data,
+    screening: { ...screening.summary, token: screening.token, screenedAt: screening.screenedAt },
     notes,
     suggestions: suggestions(result.unplaced.length, coverage),
   };

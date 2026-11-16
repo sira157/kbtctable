@@ -29,7 +29,9 @@ function realData(): RawData {
     subjects: S.subjects,
     groupSubjects: S.groupSubjects,
     teachers,
-    teacherSubjects: T.assignments.map((a) => ({ teacherId: tid.get(a.teacherName)!, subjectCode: a.subjectCode, role: a.role })),
+    teacherSubjects: T.assignments.map((a) => ({
+      teacherId: tid.get(a.teacherName)!, subjectCode: a.subjectCode, subjectName: a.subjectName, role: a.role,
+    })),
     buildings: B.buildings.map((b) => b.name),
   };
 }
@@ -82,6 +84,34 @@ describe("rules", () => {
     expect(summary.skipped.assignmentsOfUnregistered).toBe(1);
     expect(summary.skipped.teachersWithoutRegisteredSubject).toBe(1);
     expect(summary.departments).toEqual([{ department: "อุตสาหกรรม", building: "อาคารอุตสาหกรรม", ownBuilding: true, registrations: 1, hours: 4 }]);
+  });
+  test("teacher must match the group's registered subject code AND name", () => {
+    // 30202-8001 means "ฝึกงาน" for group A but "ภาษาอังกฤษ…" for group B
+    const { input, summary } = buildInput({
+      groups: [{ code: "662020101", name: "A", major: null }, { code: "662020102", name: "B", major: null }],
+      subjects: [{ code: "30202-8001", name: "ฝึกงาน" }],
+      groupSubjects: [
+        { groupCode: "662020101", subjectCode: "30202-8001", subjectName: "ฝึกงาน", periodsPerWeek: 4 },
+        { groupCode: "662020102", subjectCode: "30202-8001", subjectName: "ภาษาอังกฤษเตรียมความพร้อม", periodsPerWeek: 2 },
+      ],
+      teachers: [{ id: 1, name: "ครูฝึกงาน", department: null }, { id: 2, name: "ครูอังกฤษ", department: null }, { id: 3, name: "ครูเคมี", department: null }],
+      teacherSubjects: [
+        { teacherId: 1, subjectCode: "30202-8001", subjectName: "ฝึกงาน", role: "ผู้สอนหลัก" },
+        { teacherId: 2, subjectCode: "30202-8001", subjectName: "ภาษาอังกฤษเตรียมความพร้อม", role: "ผู้สอนหลัก" },
+        { teacherId: 3, subjectCode: "30202-8001", subjectName: "เคมี", role: "ผู้สอนหลัก" },
+      ],
+      buildings: ["อาคารบริหารธุรกิจ"],
+    });
+    const byGroup = Object.fromEntries(input.demands.map((d) => [d.groupCode, d]));
+    expect(byGroup["662020101"]!.mainTeachers).toEqual([1]);
+    expect(byGroup["662020102"]!.mainTeachers).toEqual([2]);
+    expect(byGroup["662020102"]!.subjectName).toBe("ภาษาอังกฤษเตรียมความพร้อม");
+    expect(summary.skipped.assignmentsNameMismatch).toBe(1); // ครูเคมี matches no group
+    expect(input.teachers.map((t) => t.id).sort()).toEqual([1, 2]);
+    const r = solve(input);
+    expect(r.entries.filter((e) => e.groupCode === "662020101").every((e) => e.teacherId === 1 || e.teacherId === null)).toBe(true);
+    expect(r.entries.filter((e) => e.groupCode === "662020102").every((e) => e.teacherId === 2 || e.teacherId === null)).toBe(true);
+    expect(validate(input, r.entries).totalViolations).toBe(0);
   });
   test("guess major from code", () => {
     const known = [{ code: "662010101", major: "ช่างยนต์" }, { code: "662020201", major: "การตลาด" }];
