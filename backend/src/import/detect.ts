@@ -26,7 +26,8 @@ const has = (headers: unknown[], key: keyof typeof HEADERS) =>
 export function detectFileType(sheets: Sheet[]): FileType | null {
   for (const s of sheets) {
     const h = s.rows[0] ?? [];
-    if (has(h, "teacherName") && (has(h, "rank") || has(h, "department"))) return "teachers";
+    // teacher list (name + rank/department) or teaching rows (name + role) — CSV/JSON may combine both in one table
+    if (has(h, "teacherName") && (has(h, "rank") || has(h, "department") || has(h, "role"))) return "teachers";
     if (has(h, "subjectCode") && has(h, "periods") && has(h, "groupCode")) return "subjects";
     if (has(h, "groupCode") && has(h, "groupName")) return "class_groups";
     if (has(h, "buildingName")) return "buildings";

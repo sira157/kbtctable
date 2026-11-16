@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, DataTable, ErrorBox, IssueList } from "@/components/ui";
 import { type CommitResult, FILE_TYPE_LABELS, type PreviewResult, TABLE_LABELS, uploadFile } from "@/lib/api";
 
@@ -33,8 +33,8 @@ export default function ImportPage() {
     if (!list) return;
     for (const file of Array.from(list)) {
       const job: Job = { id: ++seq, file, phase: "checking" };
-      if (!file.name.toLowerCase().endsWith(".xlsx")) {
-        setJobs((js) => [...js, { ...job, phase: "bad", error: "รองรับเฉพาะไฟล์ .xlsx" }]);
+      if (!/\.(xlsx|csv|json)$/i.test(file.name)) {
+        setJobs((js) => [...js, { ...job, phase: "bad", error: "รองรับเฉพาะไฟล์ .xlsx, .csv และ .json" }]);
         continue;
       }
       setJobs((js) => [...js, job]);
@@ -77,7 +77,7 @@ export default function ImportPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold">นำเข้าไฟล์ Excel</h1>
+        <h1 className="text-2xl font-semibold">นำเข้าไฟล์</h1>
         <p className="text-sm text-slate-500">เลือกได้หลายไฟล์พร้อมกัน ระบบรู้ประเภทไฟล์เองและนำเข้าตามลำดับที่ถูกต้อง</p>
       </div>
 
@@ -87,11 +87,14 @@ export default function ImportPage() {
         onDrop={(e) => { e.preventDefault(); setDrag(false); addFiles(e.dataTransfer.files); }}
         className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition ${drag ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-white hover:border-indigo-400"}`}
       >
-        <input ref={inputRef} type="file" accept=".xlsx" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
+        <input ref={inputRef} type="file" accept=".xlsx,.csv,.json" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
         <div className="text-4xl">📂</div>
-        <div className="mt-2 font-medium">ลากไฟล์ .xlsx มาวาง (ได้หลายไฟล์) หรือคลิกเพื่อเลือก</div>
+        <div className="mt-2 font-medium">ลากไฟล์มาวาง (ได้หลายไฟล์) หรือคลิกเพื่อเลือก</div>
+        <div className="mt-1 text-sm text-slate-600">รองรับ Excel (.xlsx) · CSV (.csv) · JSON (.json)</div>
         <div className="mt-1 text-xs text-slate-500">กลุ่มเรียน · รหัสและชื่อวิชา · อาจารย์ผู้สอน · อาคารเรียน</div>
       </label>
+
+      <Templates />
 
       {jobs.length > 0 && (
         <Card className="space-y-3">
@@ -224,5 +227,80 @@ function PreviewDetails({ p, result }: { p: PreviewResult; result?: CommitResult
       )}
       {p.issues.some((i) => i.level === "error") && <ErrorBox message="แถวที่ผิดพลาดจะไม่ถูกนำไปจัดตาราง แต่ข้อมูลต้นฉบับจะเก็บไว้ และแสดงในหน้าคัดกรองพร้อมวิธีแก้" />}
     </div>
+  );
+}
+
+interface TemplateSizeInfo { size: string; label: string; groups: number; registrations: number; hours: number; teachers: number; rooms: number }
+const TEMPLATE_TYPES: [string, string][] = [
+  ["class_groups", "กลุ่มเรียน"], ["subjects", "รหัสและชื่อวิชา"], ["teachers", "อาจารย์ผู้สอน"], ["buildings", "อาคารเรียน"],
+];
+
+/** download templates: 4 file types × size (blank/small/medium/large) × format (xlsx/csv/json) */
+function Templates() {
+  const [open, setOpen] = useState(false);
+  const [sizes, setSizes] = useState<TemplateSizeInfo[]>([]);
+  const [size, setSize] = useState("small");
+  const [format, setFormat] = useState("xlsx");
+
+  useEffect(() => {
+    if (open && !sizes.length) fetch("/api/templates").then((r) => r.json()).then((d) => setSizes(d.sizes ?? [])).catch(() => {});
+  }, [open, sizes.length]);
+
+  const info = sizes.find((s) => s.size === size);
+  return (
+    <Card className="!p-0">
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-5 py-3 text-left">
+        <span className="text-lg">📥</span>
+        <span className="font-medium">ดาวน์โหลดแม่แบบ (Template)</span>
+        <span className="text-sm text-slate-500">— ไฟล์ตัวอย่างพร้อมหัวตารางที่ถูกต้อง</span>
+        <span className="ml-auto text-slate-400">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="space-y-4 border-t border-slate-100 px-5 py-4">
+          <div className="flex flex-wrap items-center gap-4 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500">ขนาด</span>
+              <div className="flex rounded-lg bg-slate-100 p-1">
+                {[["blank", "เปล่า"], ["small", "เล็ก"], ["medium", "กลาง"], ["large", "ใหญ่"]].map(([v, l]) => (
+                  <button key={v} onClick={() => setSize(v)}
+                    className={`rounded-md px-3 py-1 ${size === v ? "bg-white font-medium text-indigo-700 shadow-sm" : "text-slate-600"}`}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500">รูปแบบ</span>
+              <div className="flex rounded-lg bg-slate-100 p-1">
+                {[["xlsx", "Excel"], ["csv", "CSV"], ["json", "JSON"]].map(([v, l]) => (
+                  <button key={v} onClick={() => setFormat(v)}
+                    className={`rounded-md px-3 py-1 ${format === v ? "bg-white font-medium text-indigo-700 shadow-sm" : "text-slate-600"}`}>{l}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <p className="text-sm text-slate-600">
+            {size === "blank" ? "มีแต่หัวตาราง สำหรับกรอกข้อมูลเอง"
+              : info ? `ข้อมูลตัวอย่าง ${info.groups} กลุ่ม · ${info.registrations} รายการลงทะเบียน · ${info.hours.toLocaleString()} คาบ/สัปดาห์ · อาจารย์ ${info.teachers} คน · ห้อง ${info.rooms} ห้อง — ทั้ง 4 ไฟล์ใช้รหัสตรงกัน นำเข้าแล้วจัดตารางได้ทันที`
+              : "…"}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {TEMPLATE_TYPES.map(([type, label], i) => (
+              <a key={type} href={`/api/templates/${type}?size=${size}&format=${format}`}
+                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm hover:border-indigo-300 hover:bg-indigo-50">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs">{i + 1}</span>
+                <span className="flex-1">{label}</span>
+                <span className="text-xs text-slate-400">.{format} ⬇</span>
+              </a>
+            ))}
+          </div>
+          {format !== "xlsx" && (
+            <p className="text-xs text-slate-500">
+              CSV/JSON เก็บได้ตารางเดียว — แม่แบบ “อาจารย์ผู้สอน” จึงรวมรายชื่ออาจารย์และวิชาที่สอนไว้ในตารางเดียว
+              (รหัสวิชา, ชื่อวิชา, ชื่ออาจารย์, หน้าที่, ตำแหน่ง, แผนก) ระบบแยกให้เองตอนนำเข้า ·
+              JSON รับได้ทั้งอาร์เรย์ของแถว และอ็อบเจกต์ที่แต่ละคีย์เป็นชีต
+            </p>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }

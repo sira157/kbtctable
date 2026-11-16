@@ -124,7 +124,7 @@ export default function SchedulePage() {
                   ))}
                 </select>
               )}
-              <a href={`${API_URL}/schedule/runs/${run.id}/export.csv`} className="rounded-md border border-slate-300 bg-white px-3 py-1 hover:bg-slate-50">⬇ Excel</a>
+              <ExportMenu runId={run.id} by={by} viewKey={key} current={current?.label} />
               <button onClick={() => window.print()} className="rounded-md border border-slate-300 bg-white px-3 py-1 hover:bg-slate-50">🖨 พิมพ์</button>
             </span>
           </div>
@@ -350,5 +350,37 @@ function DataCard({ d }: { d: DataSummary }) {
         </div>
       </div>
     </div>
+  );
+}
+
+const VIEW_NAME: Record<ViewBy, string> = { group: "กลุ่มเรียน", teacher: "อาจารย์", building: "อาคาร", room: "ห้อง" };
+
+/** ส่งออก: PDF / Excel (this page or all pages of the current view) and CSV (full list) */
+function ExportMenu({ runId, by, viewKey, current }: { runId: number; by: ViewBy; viewKey: string; current?: string }) {
+  const base = `${API_URL}/schedule/runs/${runId}`;
+  const one = viewKey ? `&key=${encodeURIComponent(viewKey)}` : "";
+  const items: { group: string; icon: string; label: string; sub: string; href: string }[] = [
+    ...(viewKey ? [{ group: "PDF", icon: "📄", label: "PDF หน้านี้", sub: current ?? "", href: `${base}/export.pdf?by=${by}${one}` }] : []),
+    { group: "PDF", icon: "📄", label: `PDF ทุก${VIEW_NAME[by]}`, sub: "1 หน้าต่อ 1 ตาราง (A4 แนวนอน)", href: `${base}/export.pdf?by=${by}` },
+    ...(viewKey ? [{ group: "Excel", icon: "📊", label: "Excel หน้านี้", sub: current ?? "", href: `${base}/export.xlsx?by=${by}${one}` }] : []),
+    { group: "Excel", icon: "📊", label: `Excel ทุก${VIEW_NAME[by]}`, sub: "ชีตรายการทั้งหมด + 1 ชีตต่อตาราง", href: `${base}/export.xlsx?by=${by}` },
+    { group: "CSV", icon: "🧾", label: "CSV รายการทั้งหมด", sub: "ทุกคาบ 1 แถว (เปิดใน Excel ได้)", href: `${base}/export.csv` },
+  ];
+  return (
+    <details className="relative">
+      <summary className="cursor-pointer list-none rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-700">⬇ ส่งออก ▾</summary>
+      <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+        {items.map((it) => (
+          <a key={it.href} href={it.href} className="flex items-start gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-slate-50">
+            <span>{it.icon}</span>
+            <span className="min-w-0">
+              <span className="block font-medium">{it.label}</span>
+              {it.sub && <span className="block truncate text-xs text-slate-400">{it.sub}</span>}
+            </span>
+          </a>
+        ))}
+        <p className="px-3 pb-1 pt-2 text-[11px] text-slate-400">PDF ทุกกลุ่มอาจใช้เวลาหลายวินาที</p>
+      </div>
+    </details>
   );
 }

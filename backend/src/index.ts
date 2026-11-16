@@ -5,6 +5,8 @@ import { dataRoutes } from "./routes/data";
 import { importRoutes } from "./routes/import";
 import { manageRoutes, ValidationError } from "./routes/manage";
 import { screeningRoutes } from "./routes/screening";
+import { templateRoutes } from "./routes/templates";
+import { exportRoutes } from "./routes/export";
 import { ScreeningError } from "./screening/service";
 import { scheduleRoutes } from "./routes/schedule";
 import { ScheduleError } from "./schedule/service";
@@ -57,7 +59,7 @@ const app = new Elysia()
     return { message: `เกิดข้อผิดพลาดที่เซิร์ฟเวอร์: ${msg}` };
   })
   .get("/", () => ({ ok: true, name: "myapp-backend" }))
-  .group("/api", (api) => api.use(importRoutes).use(dataRoutes).use(scheduleRoutes).use(manageRoutes).use(screeningRoutes))
+  .group("/api", (api) => api.use(importRoutes).use(dataRoutes).use(scheduleRoutes).use(manageRoutes).use(screeningRoutes).use(templateRoutes).use(exportRoutes))
   .listen({ port, hostname: process.env.HOST ?? "127.0.0.1" });
 
 console.log(`🦊 Elysia API running at http://localhost:${app.server?.port}`);

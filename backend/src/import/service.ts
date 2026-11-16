@@ -10,7 +10,7 @@ import { detectFileType } from "./detect";
 import { guessMajor } from "./groupCode";
 import { parsers } from "./parsers";
 import { FILE_TYPE_LABELS, type FileType, type ImportData, type ParseResult, type RowIssue, type Sheet } from "./types";
-import { readWorkbook } from "./workbook";
+import { FormatError, formatOf, readInput } from "./workbook";
 
 type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
 type Exec = DB | Tx;
@@ -37,16 +37,17 @@ export interface PreviewResult extends Omit<ParseResult, "data"> {
 }
 
 async function parseFile(file: File): Promise<{ type: FileType; parsed: ParseResult; sheets: Sheet[] }> {
+  if (!formatOf(file.name)) throw new ImportError("รองรับเฉพาะไฟล์ .xlsx, .csv และ .json");
   let sheets;
   try {
-    sheets = readWorkbook(new Uint8Array(await file.arrayBuffer()));
-  } catch {
-    throw new ImportError("อ่านไฟล์ไม่ได้ กรุณาอัปโหลดไฟล์ .xlsx");
+    sheets = readInput(file.name, new Uint8Array(await file.arrayBuffer()));
+  } catch (e) {
+    throw new ImportError(e instanceof FormatError ? e.message : "อ่านไฟล์ไม่ได้ — ตรวจว่าเป็นไฟล์ .xlsx / .csv / .json ที่ถูกต้อง");
   }
   const type = detectFileType(sheets);
   if (!type) {
     throw new ImportError(
-      "ไม่รู้จักรูปแบบไฟล์ (หัวตารางต้องตรงกับไฟล์ กลุ่มเรียน / รายวิชา / อาจารย์ / อาคารเรียน)",
+      "ไม่รู้จักรูปแบบข้อมูล — หัวตารางต้องตรงกับแม่แบบ (กลุ่มเรียน / รหัสและชื่อวิชา / อาจารย์ / อาคารเรียน) ดาวน์โหลดแม่แบบได้ที่หน้านำเข้าไฟล์",
     );
   }
   return { type, parsed: parsers[type](sheets), sheets };

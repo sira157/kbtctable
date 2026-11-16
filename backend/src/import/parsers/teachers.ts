@@ -30,18 +30,18 @@ export function parseTeachers(sheets: Sheet[]): ParseResult {
       if (isBlankRow(r)) return;
       const name = text(r[ni]);
       if (!name) return error(tSheet.name, i + 2, "ไม่มีชื่ออาจารย์");
+      const prev = teachers.get(name);
       teachers.set(name, {
         name,
-        rank: ri >= 0 ? textOrNull(r[ri]) : null,
-        department: di >= 0 ? textOrNull(r[di]) : null,
+        rank: (ri >= 0 ? textOrNull(r[ri]) : null) ?? prev?.rank ?? null,
+        department: (di >= 0 ? textOrNull(r[di]) : null) ?? prev?.department ?? null,
       });
     });
   }
 
   // Sheet with subject + teacher + role -> assignments. Subject code column may have a blank header.
-  const aSheet = sheets.find(
-    (s) => s !== tSheet && findCol(s.rows[0] ?? [], [...HEADERS.role]) >= 0,
-  );
+  // (may be the same sheet as the teacher list when a CSV/JSON combines both)
+  const aSheet = sheets.find((s) => findCol(s.rows[0] ?? [], [...HEADERS.role]) >= 0);
   if (aSheet) {
     const h = aSheet.rows[0]!;
     let sci = findCol(h, [...HEADERS.subjectCode]);
