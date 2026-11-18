@@ -1,8 +1,9 @@
 import type { SpecialRule } from "./types";
 
-/** วิชาสามัญ: รหัส 20000-xxxx / 30000-xxxx และเลขท้าย < 2000 */
+/** วิชาสามัญ (หมวดสมรรถนะแกนกลาง): รหัส 20000-1xxx, 20001-1xxx, 30000-1xxx ฯลฯ → อาคารสามัญศึกษา
+ *  (เลขท้าย 1xxx เท่านั้น; 2xxx เป็นกิจกรรม/ฝึกงาน ไม่นับ) */
 export function isGeneralSubject(code: string): boolean {
-  const m = /^([23]0000)-(\d{4})$/.exec(code);
+  const m = /^([23]000\d)\s*[-*]\s*(\d{4})$/.exec(code.trim());
   return !!m && Number(m[2]) < 2000;
 }
 
