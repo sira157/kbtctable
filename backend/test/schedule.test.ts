@@ -40,6 +40,10 @@ describe("rules", () => {
   test("general subjects", () => {
     expect(isGeneralSubject("20000-1101")).toBe(true);
     expect(isGeneralSubject("30000-1501")).toBe(true);
+    expect(isGeneralSubject("20000-1301")).toBe(true);
+    expect(isGeneralSubject("20000-1401")).toBe(true);
+    expect(isGeneralSubject("20001-1002")).toBe(true);
+    expect(isGeneralSubject(" 20000-1201 ")).toBe(true);
     expect(isGeneralSubject("20000-2006")).toBe(false);
     expect(isGeneralSubject("20101-2108")).toBe(false);
   });
