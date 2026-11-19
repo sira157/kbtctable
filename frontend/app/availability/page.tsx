@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { useConfirm } from "@/components/Dialog";
 import { Card, ErrorBox } from "@/components/ui";
 import { api, DAYS, type Option } from "@/lib/api";
 
@@ -18,6 +19,7 @@ export default function AvailabilityPage() {
 }
 
 function Availability() {
+  const confirm = useConfirm();
   const params = useSearchParams();
   const [teachers, setTeachers] = useState<Option[]>([]);
   const [teacher, setTeacher] = useState(params.get("teacher") ?? "");
@@ -88,7 +90,7 @@ function Availability() {
       {msg && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{msg}</div>}
 
       <div className="flex flex-wrap items-center gap-3">
-        <select value={teacher} onChange={(e) => { if (!dirty || confirm("ยังไม่ได้บันทึก — เปลี่ยนอาจารย์?")) setTeacher(e.target.value); }}
+        <select value={teacher} onChange={async (e) => { const v = e.target.value; if (!dirty || await confirm({ message: "ยังไม่ได้บันทึก — เปลี่ยนอาจารย์?", confirmText: "เปลี่ยน" })) setTeacher(v); }}
           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
           {teachers.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>

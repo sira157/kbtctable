@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useConfirm } from "@/components/Dialog";
 import { Card, ErrorBox } from "@/components/ui";
 import { ApiError, api, MANAGE_ORDER, type EntityDef, type FieldDef, type Meta, type Option } from "@/lib/api";
 
@@ -41,6 +42,7 @@ const COLUMNS: Record<string, { key: string; label: string }[]> = {
 type Row = Record<string, unknown>;
 
 export default function ManagePage() {
+  const confirm = useConfirm();
   const { entity } = useParams<{ entity: string }>();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -85,7 +87,7 @@ export default function ManagePage() {
     if (!def) return;
     const id = String(row[def.pk]);
     const name = String(row.name ?? row.code ?? row.room_code ?? row.subject_code ?? id);
-    if (!confirm(`ลบ "${name}" ?${def.cascade ? `\n\nจะลบ${def.cascade}ด้วย` : ""}`)) return;
+    if (!(await confirm({ danger: true, message: `ลบ "${name}" ?${def.cascade ? `\n\nจะลบ${def.cascade}ด้วย` : ""}` }))) return;
     try {
       await api(`/manage/${entity}/${encodeURIComponent(id)}`, { method: "DELETE" });
       setFlash(`ลบ "${name}" แล้ว`);

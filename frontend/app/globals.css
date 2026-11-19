@@ -7,3 +7,9 @@
 body {
   @apply bg-slate-50 text-slate-800 antialiased;
 }
+
+/* popup dialog */
+@keyframes dialog-fade { from { opacity: 0 } }
+@keyframes dialog-pop { from { opacity: 0; transform: translateY(8px) scale(.96) } }
+.dialog-backdrop { animation: dialog-fade .15s ease-out }
+.dialog-panel { animation: dialog-pop .18s ease-out }
